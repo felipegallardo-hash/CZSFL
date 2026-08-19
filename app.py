@@ -81,24 +81,33 @@ def load_master_data(path: str):
         key = row[0]       # CONCATENADO, e.g. FF150 3-1/2"
         if not key:
             continue
-        cuts[str(key)] = {
-            "od_mm": float(row[3]) if row[3] is not None else None,
-            "id_mm": float(row[4]) if row[4] is not None else None,
-            "class": row[7],
-            "cut_cost": float(row[11]) if row[11] is not None else 0.0,
-        }
+        key = str(key)
+        # Excel VLOOKUP(...,FALSE) returns the FIRST exact match.
+        # Do not overwrite a value if the same key appears later in LISTADO.
+        if key not in cuts:
+            cuts[key] = {
+                "od_mm": float(row[3]) if row[3] is not None else None,
+                "id_mm": float(row[4]) if row[4] is not None else None,
+                "class": row[7],
+                "cut_cost": float(row[11]) if row[11] is not None else 0.0,
+            }
 
     materials = {}
     for row in listado.iter_rows(min_row=2, min_col=33, max_col=37, values_only=True):
         name, inventory, unit_cost, length, width = row
         if not name or length is None or width is None:
             continue
-        materials[str(name)] = {
-            "inventory": float(inventory) if inventory is not None else 0.0,
-            "sheet_cost": float(unit_cost) if unit_cost is not None else 0.0,
-            "length": float(length),
-            "width": float(width),
-        }
+        name = str(name)
+        # Excel VLOOKUP(...,FALSE) returns the FIRST exact match.
+        # LISTADO contains repeated material names; later duplicates must NOT overwrite
+        # the first record used by the original cotizador.
+        if name not in materials:
+            materials[name] = {
+                "inventory": float(inventory) if inventory is not None else 0.0,
+                "sheet_cost": float(unit_cost) if unit_cost is not None else 0.0,
+                "length": float(length),
+                "width": float(width),
+            }
 
     # ---- Braided packing ----
     # LISTADO AC=style, AD=section, AF=real product code.
@@ -306,7 +315,10 @@ with tab_flat:
             unsafe_allow_html=True,
         )
 
-    st.caption(glosa)
+    st.caption(
+        f"{glosa} · Costo plancha usado: {clp(mat['sheet_cost'])} · "
+        f"OD de corte: {cut_data['od_mm']:.0f} mm"
+    )
 
     if st.button("➕ Agregar plana a cotización", type="primary", use_container_width=True):
         st.session_state.quote_items.append(
