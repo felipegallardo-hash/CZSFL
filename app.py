@@ -54,6 +54,21 @@ def excel_round_hundred(value: float) -> int:
     d = Decimal(str(value)) / Decimal("100")
     return int(d.quantize(Decimal("1"), rounding=ROUND_HALF_UP) * Decimal("100"))
 
+def excel_roundup_integer(value: float) -> int:
+    """Equivalent to Excel ROUNDUP(value,0) for positive quote values."""
+    return int(math.ceil(value))
+
+def sale_price_from_factor(cost: float, factor: float) -> int:
+    """Cotizador original: ROUND(costo * factor, -2)."""
+    return excel_round_hundred(cost * factor)
+
+def sale_price_from_margin(cost: float, margin_pct: float) -> int:
+    """Cotizador original: ROUNDUP(costo / (1 - margen), 0)."""
+    margin = margin_pct / 100.0
+    if margin >= 1:
+        raise ValueError("El margen debe ser menor a 100%.")
+    return excel_roundup_integer(cost / (1 - margin))
+
 @st.cache_data(show_spinner=False)
 def load_master_data(path: str):
     wb_values = load_workbook(path, data_only=True, read_only=True)
@@ -191,6 +206,11 @@ st.markdown(
     '<div class="sub-title">Cotizador de empaquetaduras planas y trenzadas basado en la matriz de costos validada.</div>',
     unsafe_allow_html=True,
 )
+st.info(
+    "Importante: usa **Factor multiplicador** cuando trabajes con valores como 2 o 6,5. "
+    "Usa **Margen %** cuando quieras ingresar, por ejemplo, 50% de margen. "
+    "La app aplica la misma fórmula del cotizador original para cada caso."
+)
 
 # Quote metadata
 m1, m2, m3 = st.columns([2.2, 1.2, 1])
@@ -216,14 +236,36 @@ with tab_flat:
         qty = st.number_input("Cantidad a cotizar", min_value=1, value=1, step=1)
 
     with c2:
-        factor = st.number_input(
-            "Factor / margen",
-            min_value=0.01,
-            value=2.0,
-            step=0.1,
-            format="%.2f",
-            help="Se multiplica por el costo total unitario, igual que en el cotizador Excel.",
+        pricing_mode_flat = st.radio(
+            "Método de precio",
+            ["Factor multiplicador", "Margen %"],
+            horizontal=True,
+            key="pricing_mode_flat",
+            help="El cotizador original usa fórmulas distintas para factor y margen.",
         )
+        if pricing_mode_flat == "Factor multiplicador":
+            factor = st.number_input(
+                "Factor",
+                min_value=0.01,
+                value=2.0,
+                step=0.1,
+                format="%.2f",
+                key="flat_factor",
+                help="Ejemplo: 2,0 duplica el costo.",
+            )
+            margin_pct_flat = None
+        else:
+            margin_pct_flat = st.number_input(
+                "Margen (%)",
+                min_value=0.0,
+                max_value=99.9,
+                value=50.0,
+                step=1.0,
+                format="%.1f",
+                key="flat_margin",
+                help="Ejemplo: para 50% ingresa 50.",
+            )
+            factor = None
 
     mat = materials[material]
     cut_data = cuts[cut]
@@ -235,7 +277,14 @@ with tab_flat:
 
     cut_cost = cut_data["cut_cost"]
     material_unit_cost = (mat["sheet_cost"] / pieces) if pieces else 0.0
-    unit_sale = excel_round_hundred((cut_cost + material_unit_cost) * factor) if pieces else 0
+    flat_cost = cut_cost + material_unit_cost
+    if pieces:
+        if pricing_mode_flat == "Factor multiplicador":
+            unit_sale = sale_price_from_factor(flat_cost, factor)
+        else:
+            unit_sale = sale_price_from_margin(flat_cost, margin_pct_flat)
+    else:
+        unit_sale = 0
     total = unit_sale * qty
     glosa = f"EMPAQUETADURA {cut} {material}"
 
@@ -286,18 +335,43 @@ with tab_braid:
         kg = st.number_input("Kg a cotizar", min_value=0.01, value=2.0, step=0.5, format="%.2f")
 
     with b2:
-        braid_factor = st.number_input(
-            "Factor / margen",
-            min_value=0.01,
-            value=6.5,
-            step=0.1,
-            format="%.2f",
-            help="Se multiplica por el costo por kg.",
+        pricing_mode_braid = st.radio(
+            "Método de precio",
+            ["Factor multiplicador", "Margen %"],
+            horizontal=True,
+            key="pricing_mode_braid",
+            help="El cotizador original usa fórmulas distintas para factor y margen.",
         )
+        if pricing_mode_braid == "Factor multiplicador":
+            braid_factor = st.number_input(
+                "Factor",
+                min_value=0.01,
+                value=6.5,
+                step=0.1,
+                format="%.2f",
+                key="braid_factor",
+                help="Ejemplo: 6,5 multiplica el costo por kg por 6,5.",
+            )
+            braid_margin_pct = None
+        else:
+            braid_margin_pct = st.number_input(
+                "Margen (%)",
+                min_value=0.0,
+                max_value=99.9,
+                value=50.0,
+                step=1.0,
+                format="%.1f",
+                key="braid_margin",
+                help="Ejemplo: para 50% ingresa 50.",
+            )
+            braid_factor = None
 
     braid = braids[(style, section)]
     cost_kg = braid["cost"]
-    price_kg = excel_round_hundred(cost_kg * braid_factor)
+    if pricing_mode_braid == "Factor multiplicador":
+        price_kg = sale_price_from_factor(cost_kg, braid_factor)
+    else:
+        price_kg = sale_price_from_margin(cost_kg, braid_margin_pct)
     braid_total = price_kg * kg
     braid_glosa = f'EMPAQUETADURA TRENZADA ESTILO {style} SECCION {section}'
     display_section = section.replace('"', '')
