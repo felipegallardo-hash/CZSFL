@@ -381,6 +381,11 @@ st.info(
     "La app aplica la misma fórmula del cotizador original para cada caso."
 )
 
+st.warning(
+    "Los ajustes manuales de costo se aplican a la cotización actual. "
+    "El costo base del Excel no se modifica automáticamente."
+)
+
 # Quote metadata
 m1, m2, m3 = st.columns([2.2, 1.2, 1])
 with m1:
@@ -463,7 +468,22 @@ with tab_flat:
         pieces = math.floor(mat["length"] / od) * math.floor(mat["width"] / od)
 
     cut_cost = cut_data["cut_cost"]
-    material_unit_cost = (mat["sheet_cost"] / pieces) if pieces else 0.0
+
+    st.markdown("#### Ajuste de costo de materia prima")
+    st.caption(
+        "El valor mostrado corresponde al costo base del Excel. "
+        "Puedes modificarlo para reflejar alzas o disminuciones sin cambiar la base original."
+    )
+    raw_sheet_cost = st.number_input(
+        "Costo actual de la plancha",
+        min_value=0.0,
+        value=float(mat["sheet_cost"]),
+        step=1000.0,
+        format="%.2f",
+        key=f"flat_raw_cost_{material}",
+    )
+
+    material_unit_cost = (raw_sheet_cost / pieces) if pieces else 0.0
     flat_cost = cut_cost + material_unit_cost
     if pieces:
         if pricing_mode_flat == "Factor multiplicador":
@@ -479,7 +499,12 @@ with tab_flat:
     r1.metric("Cantidad por plancha", f"{pieces}")
     r2.metric("Costo corte unit.", clp(cut_cost))
     r3.metric("Costo material / un.", clp(material_unit_cost))
-    r4.metric("Inventario planchas", f"{mat['inventory']:,.0f}".replace(",", "."))
+    delta_raw = raw_sheet_cost - float(mat["sheet_cost"])
+    r4.metric(
+        "Costo plancha ajustado",
+        clp(raw_sheet_cost),
+        delta=clp(delta_raw) if abs(delta_raw) >= 0.5 else None,
+    )
 
     p1, p2 = st.columns(2)
     with p1:
@@ -494,8 +519,8 @@ with tab_flat:
         )
 
     st.caption(
-        f"{glosa} · Costo plancha usado: {clp(mat['sheet_cost'])} · "
-        f"OD de corte: {cut_data['od_mm']:.0f} mm"
+        f"{glosa} · Costo plancha base: {clp(mat['sheet_cost'])} · "
+        f"Costo plancha usado: {clp(raw_sheet_cost)} · OD de corte: {cut_data['od_mm']:.0f} mm"
     )
 
     if st.button("➕ Agregar plana a cotización", type="primary", use_container_width=True):
@@ -507,6 +532,8 @@ with tab_flat:
                 "Unidad": "UN",
                 "Precio unitario": unit_sale,
                 "Subtotal": total,
+                "Costo materia prima": raw_sheet_cost,
+                "Costo base materia prima": mat["sheet_cost"],
             }
         )
         st.success("Producto agregado a la cotización.")
@@ -557,7 +584,22 @@ with tab_braid:
             braid_factor = None
 
     braid = braids[(style, section)]
-    cost_kg = braid["cost"]
+
+    st.markdown("#### Ajuste de costo de materia prima")
+    st.caption(
+        "El costo por kg se carga desde el Excel. Puedes modificarlo temporalmente "
+        "para cotizar con un costo actualizado."
+    )
+    base_cost_kg = float(braid["cost"])
+    cost_kg = st.number_input(
+        "Costo actual por kg",
+        min_value=0.0,
+        value=base_cost_kg,
+        step=100.0,
+        format="%.2f",
+        key=f"braid_raw_cost_{style}_{section}",
+    )
+
     if pricing_mode_braid == "Factor multiplicador":
         price_kg = sale_price_from_factor(cost_kg, braid_factor)
     else:
@@ -566,10 +608,16 @@ with tab_braid:
     braid_glosa = f'EMPAQUETADURA TRENZADA ESTILO {style} SECCION {section}'
     display_section = section.replace('"', '')
 
-    a1, a2, a3 = st.columns(3)
-    a1.metric("Costo por kg", clp(cost_kg))
-    a2.metric("Stock registrado (kg)", f"{braid['stock']:,.2f}".replace(",", "."))
-    a3.metric("Código", braid["code"])
+    a1, a2, a3, a4 = st.columns(4)
+    a1.metric("Costo base / kg", clp(base_cost_kg))
+    delta_cost = cost_kg - base_cost_kg
+    a2.metric(
+        "Costo usado / kg",
+        clp(cost_kg),
+        delta=clp(delta_cost) if abs(delta_cost) >= 0.5 else None,
+    )
+    a3.metric("Stock registrado (kg)", f"{braid['stock']:,.2f}".replace(",", "."))
+    a4.metric("Código", braid["code"])
 
     p1, p2 = st.columns(2)
     with p1:
@@ -594,6 +642,8 @@ with tab_braid:
                 "Unidad": "KG",
                 "Precio unitario": price_kg,
                 "Subtotal": braid_total,
+                "Costo materia prima": cost_kg,
+                "Costo base materia prima": base_cost_kg,
             }
         )
         st.success("Producto agregado a la cotización.")

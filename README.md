@@ -96,3 +96,16 @@ Para GitHub debes subir/reemplazar:
 - `Plantilla.docx`
 
 El Excel de costos se mantiene igual.
+
+
+## Costos de materia prima editables
+
+La app ahora permite ajustar manualmente los costos antes de cotizar:
+
+- Para empaquetaduras planas: **Costo actual de la plancha**.
+- Para empaquetaduras trenzadas: **Costo actual por kg**.
+
+El valor base sigue viniendo del Excel y se muestra como referencia.
+El ajuste manual afecta inmediatamente el costo unitario, precio de venta y total de la cotización.
+
+Por seguridad, el ajuste manual no sobrescribe el archivo Excel original.
